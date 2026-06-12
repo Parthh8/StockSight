@@ -3,6 +3,10 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 
+# ==========================
+# PAGE CONFIG
+# ==========================
+
 st.set_page_config(
     page_title="StockSight",
     layout="wide"
@@ -10,12 +14,16 @@ st.set_page_config(
 
 st.title("📈 StockSight - Real Time Stock Dashboard")
 
-# Sidebar
+# ==========================
+# SIDEBAR
+# ==========================
+
 st.sidebar.header("Stock Selection")
 
 stocks = st.sidebar.multiselect(
     "Select Stocks",
-    ["AAPL", "MSFT", "GOOG", "NVDA", "TSLA", "RELIANCE.NS", "TCS.NS", "INFY.NS"],
+    ["AAPL", "MSFT", "GOOG", "NVDA", "TSLA",
+     "RELIANCE.NS", "TCS.NS", "INFY.NS"],
     default=["AAPL"]
 )
 
@@ -31,6 +39,13 @@ if len(stocks) == 0:
 
 stock = stocks[0]
 
+st.sidebar.markdown("### Selected Stocks")
+st.sidebar.write(", ".join(stocks))
+
+# ==========================
+# DOWNLOAD DATA
+# ==========================
+
 data = yf.download(
     stock,
     period=period,
@@ -41,15 +56,62 @@ data = yf.download(
 if isinstance(data.columns, pd.MultiIndex):
     data.columns = data.columns.get_level_values(0)
 
-st.sidebar.markdown("### Selected Stocks")
-st.sidebar.write(", ".join(stocks))
+# ==========================
+# MAIN DASHBOARD
+# ==========================
 
 if not data.empty:
 
     st.subheader(f"{stock} Stock Data")
 
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
+    # ==========================
+    # COMPANY OVERVIEW
+    # ==========================
+
+    try:
+        ticker = yf.Ticker(stock)
+        info = ticker.info
+
+        st.subheader("🏢 Company Overview")
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric(
+            "Sector",
+            info.get("sector", "N/A")
+        )
+
+        col2.metric(
+            "Country",
+            info.get("country", "N/A")
+        )
+
+        market_cap = info.get("marketCap", 0)
+
+        if market_cap:
+            market_cap_display = f"${market_cap/1_000_000_000:.1f}B"
+        else:
+            market_cap_display = "N/A"
+
+        col3.metric(
+            "Market Cap",
+            market_cap_display
+        )
+
+        with st.expander("📖 Business Summary"):
+            st.write(
+                info.get(
+                    "longBusinessSummary",
+                    "No information available."
+                )
+            )
+
+    except:
+        st.warning("Company information unavailable.")
+
+    # ==========================
+    # STOCK METRICS
+    # ==========================
 
     latest_price = float(data["Close"].iloc[-1])
     highest_price = float(data["High"].max())
@@ -72,11 +134,17 @@ if not data.empty:
         f"${lowest_price:.2f}"
     )
 
-    # Moving averages
-    data["MA20"] = data["Close"].rolling(window=20).mean()
-    data["MA50"] = data["Close"].rolling(window=50).mean()
+    # ==========================
+    # MOVING AVERAGES
+    # ==========================
 
-    # Candlestick Chart
+    data["MA20"] = data["Close"].rolling(20).mean()
+    data["MA50"] = data["Close"].rolling(50).mean()
+
+    # ==========================
+    # CANDLESTICK CHART
+    # ==========================
+
     st.subheader("📈 Stock Price Chart")
 
     fig = go.Figure()
@@ -97,7 +165,7 @@ if not data.empty:
             x=data.index,
             y=data["MA20"],
             mode="lines",
-            name="20 Day MA"
+            name="MA20"
         )
     )
 
@@ -106,14 +174,12 @@ if not data.empty:
             x=data.index,
             y=data["MA50"],
             mode="lines",
-            name="50 Day MA"
+            name="MA50"
         )
     )
 
     fig.update_layout(
         height=700,
-        xaxis_title="Date",
-        yaxis_title="Price",
         xaxis_rangeslider_visible=False
     )
 
@@ -122,7 +188,75 @@ if not data.empty:
         use_container_width=True
     )
 
-    # Volume Chart
+    # ==========================
+    # RSI INDICATOR
+    # ==========================
+
+    delta = data["Close"].diff()
+
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+
+    rs = avg_gain / avg_loss
+
+    data["RSI"] = 100 - (100 / (1 + rs))
+
+    st.subheader("📉 RSI Indicator")
+
+    st.line_chart(data["RSI"])
+
+    st.caption(
+        "RSI > 70 = Overbought | RSI < 30 = Oversold"
+    )
+
+    # ==========================
+    # MACD INDICATOR
+    # ==========================
+
+    exp12 = data["Close"].ewm(span=12, adjust=False).mean()
+    exp26 = data["Close"].ewm(span=26, adjust=False).mean()
+
+    data["MACD"] = exp12 - exp26
+    data["Signal"] = data["MACD"].ewm(span=9, adjust=False).mean()
+
+    st.subheader("📊 MACD Indicator")
+
+    macd_fig = go.Figure()
+
+    macd_fig.add_trace(
+        go.Scatter(
+            x=data.index,
+            y=data["MACD"],
+            mode="lines",
+            name="MACD"
+        )
+    )
+
+    macd_fig.add_trace(
+        go.Scatter(
+            x=data.index,
+            y=data["Signal"],
+            mode="lines",
+            name="Signal"
+        )
+    )
+
+    macd_fig.update_layout(
+        height=400
+    )
+
+    st.plotly_chart(
+        macd_fig,
+        use_container_width=True
+    )
+
+    # ==========================
+    # VOLUME CHART
+    # ==========================
+
     st.subheader("📊 Trading Volume")
 
     volume_fig = go.Figure()
@@ -130,25 +264,42 @@ if not data.empty:
     volume_fig.add_trace(
         go.Bar(
             x=data.index,
-            y=data["Volume"],
-            name="Volume"
+            y=data["Volume"]
         )
     )
 
     volume_fig.update_layout(
-        height=400,
-        xaxis_title="Date",
-        yaxis_title="Volume"
+        height=400
     )
 
-    st.plotly_chart(volume_fig)
+    st.plotly_chart(
+        volume_fig,
+        use_container_width=True
+    )
+
+    # ==========================
+    # HISTORICAL DATA
+    # ==========================
 
     st.subheader("📋 Historical Data")
 
     st.dataframe(data)
 
     # ==========================
-    # STOCK COMPARISON SECTION
+    # DOWNLOAD CSV
+    # ==========================
+
+    csv = data.to_csv().encode("utf-8")
+
+    st.download_button(
+        label="📥 Download Stock Data",
+        data=csv,
+        file_name=f"{stock}_data.csv",
+        mime="text/csv"
+    )
+
+    # ==========================
+    # STOCK COMPARISON
     # ==========================
 
     st.subheader("📊 Stock Comparison")
