@@ -2,6 +2,9 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+from sklearn.linear_model import LinearRegression
+import numpy as np
+
 
 # ==========================
 # PAGE CONFIG
@@ -12,13 +15,50 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📈 StockSight - Real Time Stock Dashboard")
+st.markdown("""
+<style>
+
+.main {
+    padding-top: 1rem;
+}
+
+h1 {
+    text-align: center;
+}
+
+div[data-testid="metric-container"] {
+    background-color: #262730;
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid #404040;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+st.title("📈 StockSight")
+
+st.caption(
+    "Real-Time Stock Analysis Dashboard with Technical Indicators"
+)
 
 # ==========================
 # SIDEBAR
 # ==========================
 
 st.sidebar.header("Stock Selection")
+
+st.sidebar.info(
+    """
+    StockSight v2.0
+
+    Features:
+    • RSI
+    • MACD
+    • Bollinger Bands
+    • Portfolio Tracker
+    """
+)
 
 stocks = st.sidebar.multiselect(
     "Select Stocks",
@@ -142,6 +182,15 @@ if not data.empty:
     data["MA50"] = data["Close"].rolling(50).mean()
 
     # ==========================
+    # BOLLINGER BANDS
+    # ==========================
+
+    data["STD"] = data["Close"].rolling(20).std()
+
+    data["Upper Band"] = data["MA20"] + (data["STD"] * 2)
+    data["Lower Band"] = data["MA20"] - (data["STD"] * 2)
+
+    # ==========================
     # CANDLESTICK CHART
     # ==========================
 
@@ -175,6 +224,24 @@ if not data.empty:
             y=data["MA50"],
             mode="lines",
             name="MA50"
+        )
+    )
+
+    fig.add_trace(
+    go.Scatter(
+        x=data.index,
+        y=data["Upper Band"],
+        mode="lines",
+        name="Upper Band"
+    )
+)
+
+    fig.add_trace(
+        go.Scatter(
+            x=data.index,
+            y=data["Lower Band"],
+            mode="lines",
+            name="Lower Band"
         )
     )
 
@@ -299,6 +366,66 @@ if not data.empty:
     )
 
     # ==========================
+    # PORTFOLIO TRACKER
+    # ==========================
+
+    st.subheader("💼 Portfolio Tracker")
+
+    shares = st.number_input(
+        "Enter Number of Shares",
+        min_value=0,
+        value=10,
+        step=1
+    )
+
+    portfolio_value = latest_price * shares
+
+    st.metric(
+        "Portfolio Value",
+        f"${portfolio_value:,.2f}"
+    )
+
+    st.subheader("📊 Performance Statistics")
+
+    daily_return = data["Close"].pct_change().mean() * 100
+
+    volatility = data["Close"].pct_change().std() * 100
+
+    high_52 = data["High"].max()
+
+    low_52 = data["Low"].min()
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric("Avg Daily Return", f"{daily_return:.2f}%")
+    c2.metric("Volatility", f"{volatility:.2f}%")
+    c3.metric("Period High", f"${high_52:.2f}")
+    c4.metric("Period Low", f"${low_52:.2f}")
+
+    st.subheader("🤖 AI Trend Prediction")
+
+    df = data.copy()
+
+    df["Day"] = np.arange(len(df))
+
+    X = df[["Day"]]
+
+    y = df["Close"]
+
+    model = LinearRegression()
+
+    model.fit(X, y)
+
+    next_day = [[len(df)]]
+
+    prediction = model.predict(next_day)[0]
+
+    st.metric(
+        "Predicted Next Close",
+        f"${prediction:.2f}"
+    )
+
+    # ==========================
     # STOCK COMPARISON
     # ==========================
 
@@ -321,6 +448,8 @@ if not data.empty:
         comparison_df[s] = temp["Close"]
 
     st.line_chart(comparison_df)
+
+  
 
 else:
     st.error("No data found")
